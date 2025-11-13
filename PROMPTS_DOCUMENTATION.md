@@ -299,3 +299,86 @@ You are a meticulous, impartial referee evaluating two competing answers to dete
 ```
 
 ---
+
+## 2. Evaluation and Metrics Prompts
+
+Расположение: `/home/user/prompt-ops/src/prompt_ops/core/metrics.py`
+
+Эти промпты используются в метриках DSPyMetricAdapter для автоматической оценки качества ответов модели с помощью LLM-as-a-judge подхода.
+
+### 2.1. Similarity Evaluation Prompt
+
+**Назначение:** Оценивает семантическое сходство между предсказанным ответом модели и ground truth ответом. Используется для проверки, насколько ответ модели близок по смыслу к эталонному ответу.
+
+**Когда используется:** В метриках для оценки semantic similarity, когда нужно понять степень совпадения смысла, а не точного текста.
+
+**Входные параметры:**
+- `{output}` - предсказанный ответ модели
+- `{ground_truth}` - эталонный (ground truth) ответ
+
+**Выходные данные:** Целочисленная оценка от 1 до 10
+
+**Встроен в:** DSPyMetricAdapter с signature_name="similarity"
+
+```python
+SIMILARITY_PROMPT = """You are a smart language model that evaluates the similarity between a predicted text and the expected ground truth answer. You do not propose changes to the answer and only critically evaluate the existing answer and provide feedback following the instructions given.
+
+The following is the response provided by a language model to a prompt:
+{output}
+
+The expected answer to this prompt is:
+{ground_truth}
+
+Answer only with an integer from 1 to 10 based on how semantically similar the responses are to the expected answer. where 1 is no semantic similarity at all and 10 is perfect agreement between the responses and the expected answer. On a NEW LINE, give the integer score and nothing more."""
+```
+
+---
+
+### 2.2. Correctness Evaluation Prompt
+
+**Назначение:** Оценивает корректность предсказанного ответа по сравнению с ground truth. Фокусируется на фактической правильности, а не только на семантическом сходстве.
+
+**Когда используется:** Для оценки correctness метрики, когда важна фактическая точность ответа.
+
+**Входные параметры:**
+- `{output}` - предсказанный ответ модели
+- `{ground_truth}` - эталонный (ground truth) ответ
+
+**Выходные данные:** Целочисленная оценка от 1 до 10
+
+**Встроен в:** DSPyMetricAdapter с signature_name="correctness"
+
+```python
+CORRECTNESS_PROMPT = """You are a smart language model that evaluates the correctness of a predicted answer compared to the expected ground truth. You do not propose changes to the answer and only critically evaluate the existing answer.
+
+The following is the response provided by a language model to a prompt:
+{output}
+
+The expected answer to this prompt is:
+{ground_truth}
+
+Answer only with an integer from 1 to 10 based on how correct the response is compared to the expected answer, where 1 means completely incorrect and 10 means perfectly correct. On a NEW LINE, give the integer score and nothing more."""
+```
+
+---
+
+### 2.3. DSPyMetricAdapter Configuration
+
+**Описание:** DSPyMetricAdapter - это универсальный адаптер для создания LLM-based метрик. Он поддерживает:
+
+- **Встроенные сигнатуры:** "similarity", "correctness"
+- **Custom сигнатуры:** можно создать свои через параметры
+- **Нормализация оценок:** автоматическое преобразование из одного диапазона (например, 1-10) в другой (например, 0-1)
+- **Гибкий маппинг:** настраиваемое соответствие между входными данными и полями промпта
+
+**Параметры конфигурации:**
+```python
+DSPyMetricAdapter(
+    model=model,                    # DSPy-совместимая модель
+    signature_name="similarity",    # Или "correctness"
+    score_range=(1, 10),           # Ожидаемый диапазон от LLM
+    normalize_to=(0, 1)            # Целевой диапазон для нормализации
+)
+```
+
+---
