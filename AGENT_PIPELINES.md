@@ -1062,3 +1062,445 @@ PHASE 3 → OUTPUT:
 - Примеры: Генерация текста, открытые вопросы
 
 ---
+## 4. Pipeline 3: Evaluation Pipeline
+
+### 4.1. Описание
+
+Evaluation Pipeline используется для оценки качества оптимизированных промптов на тестовых данных. Система поддерживает базовую оценку и статистическую оценку с доверительными интервалами.
+
+**Ключевые особенности:**
+- Метрики для оценки quality predictions
+- Параллельное выполнение на тестовом наборе
+- Статистическая оценка с confidence intervals
+- Поддержка custom метрик
+
+### 4.2. Полная схема пайплайна
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     EVALUATION PIPELINE                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+ВХОДНЫЕ ДАННЫЕ
+┌──────────────────────────────────────────────┐
+│ optimized_program: DSPy Program              │
+│ testset: List[Example]                       │
+│ metric: Callable[[pred, expected], float]   │
+│ num_threads: int (default: 10)              │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STAGE 1: SETUP                                                          │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐     │
+│  │ Create Evaluator:                                            │     │
+│  │                                                               │     │
+│  │   evaluator = Evaluator(                                     │     │
+│  │     program=optimized_program,                               │     │
+│  │     metric=metric_function,                                  │     │
+│  │     devset=testset,                                          │     │
+│  │     num_threads=10                                           │     │
+│  │   )                                                          │     │
+│  │                                                               │     │
+│  │ Optional Statistical Setup:                                  │     │
+│  │                                                               │     │
+│  │   statistical_evaluator = StatisticalEvaluator(             │     │
+│  │     evaluator=evaluator,                                     │     │
+│  │     n_runs=5,              # повторов оценки                │     │
+│  │     confidence_level=0.95  # 95% доверительный интервал     │     │
+│  │   )                                                          │     │
+│  └──────────────────────────────────────────────────────────────┘     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STAGE 2: PROGRAM EXECUTION                                              │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐     │
+│  │ FOR each example in testset (ПАРАЛЛЕЛЬНО):                  │     │
+│  │                                                               │     │
+│  │   2.1 Извлечение входных данных                             │     │
+│  │       inputs = {                                             │     │
+│  │         field: example[field]                                │     │
+│  │         for field in program.signature.inputs                │     │
+│  │       }                                                      │     │
+│  │                                                               │     │
+│  │       Пример:                                                │     │
+│  │       example = Example(                                     │     │
+│  │         question="What is the capital of France?",          │     │
+│  │         context="France is a country in Europe...",         │     │
+│  │         answer="Paris"                                       │     │
+│  │       )                                                      │     │
+│  │                                                               │     │
+│  │       inputs = {                                             │     │
+│  │         "question": "What is the capital of France?",       │     │
+│  │         "context": "France is a country in Europe..."       │     │
+│  │       }                                                      │     │
+│  │                                                               │     │
+│  │   2.2 Выполнение программы                                  │     │
+│  │       ┌────────────────────────────────────────────────┐   │     │
+│  │       │ Program состоит из:                            │   │     │
+│  │       │                                                 │   │     │
+│  │       │ 1. Instruction (system prompt):                │   │     │
+│  │       │    "You are an expert. Given the question..." │   │     │
+│  │       │                                                 │   │     │
+│  │       │ 2. Few-shot demos (if any):                    │   │     │
+│  │       │    Example 1: Q: "...", A: "..."              │   │     │
+│  │       │    Example 2: Q: "...", A: "..."              │   │     │
+│  │       │                                                 │   │     │
+│  │       │ 3. Current query:                              │   │     │
+│  │       │    Q: "What is the capital of France?"        │   │     │
+│  │       │    Context: "..."                              │   │     │
+│  │       │                                                 │   │     │
+│  │       │ task_model generates:                          │   │     │
+│  │       │    "Paris"                                     │   │     │
+│  │       └────────────────────────────────────────────────┘   │     │
+│  │                                                               │     │
+│  │       prediction = program(**inputs)                         │     │
+│  │                                                               │     │
+│  │   2.3 Извлечение предсказания                               │     │
+│  │       pred_value = prediction[output_field]                 │     │
+│  │       # Например: pred_value = "Paris"                      │     │
+│  │                                                               │     │
+│  │   2.4 Извлечение ground truth                               │     │
+│  │       expected_value = example[output_field]                │     │
+│  │       # Например: expected_value = "Paris"                  │     │
+│  │                                                               │     │
+│  └──────────────────────────────────────────────────────────────┘     │
+│                                                                         │
+│  Результат Stage 2:                                                     │
+│    predictions = [                                                      │
+│      (pred1, expected1),                                               │
+│      (pred2, expected2),                                               │
+│      ...                                                               │
+│    ]                                                                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STAGE 3: METRIC EVALUATION                                              │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐     │
+│  │ FOR each (prediction, expected) pair:                       │     │
+│  │                                                               │     │
+│  │   score = metric(prediction, expected)                       │     │
+│  │                                                               │     │
+│  │   ┌─────────────────────────────────────────────────────┐  │     │
+│  │   │ Примеры метрик:                                     │  │     │
+│  │   │                                                      │  │     │
+│  │   │ 1. ExactMatchMetric:                                │  │     │
+│  │   │    return 1.0 if pred == expected else 0.0         │  │     │
+│  │   │                                                      │  │     │
+│  │   │ 2. DSPyMetricAdapter (LLM-based):                  │  │     │
+│  │   │    ┌────────────────────────────────────────┐      │  │     │
+│  │   │    │ Prompt: SIMILARITY_PROMPT              │      │  │     │
+│  │   │    │                                         │      │  │     │
+│  │   │    │ Входные данные:                        │      │  │     │
+│  │   │    │   {output} = prediction                │      │  │     │
+│  │   │    │   {ground_truth} = expected            │      │  │     │
+│  │   │    │                                         │      │  │     │
+│  │   │    │ judge_model оценивает similarity       │      │  │     │
+│  │   │    │                                         │      │  │     │
+│  │   │    │ Выходные данные:                       │      │  │     │
+│  │   │    │   score: 8 (из 10)                     │      │  │     │
+│  │   │    │   normalized: 0.8 (из 1.0)            │      │  │     │
+│  │   │    └────────────────────────────────────────┘      │  │     │
+│  │   │                                                      │  │     │
+│  │   │ 3. FacilityMetric (JSON evaluation):               │  │     │
+│  │   │    Compare JSON fields:                            │  │     │
+│  │   │      - urgency match: 1.0 or 0.0                   │  │     │
+│  │   │      - sentiment match: 1.0 or 0.0                 │  │     │
+│  │   │      - categories accuracy: 0.0-1.0                │  │     │
+│  │   │    total = average(all_field_scores)               │  │     │
+│  │   │                                                      │  │     │
+│  │   └─────────────────────────────────────────────────────┘  │     │
+│  │                                                               │     │
+│  │   scores.append(score)                                       │     │
+│  │                                                               │     │
+│  └──────────────────────────────────────────────────────────────┘     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STAGE 4: AGGREGATION                                                    │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐     │
+│  │ БАЗОВАЯ ОЦЕНКА:                                              │     │
+│  │                                                               │     │
+│  │   mean_score = sum(scores) / len(scores)                    │     │
+│  │                                                               │     │
+│  │   Пример:                                                     │     │
+│  │     scores = [0.8, 0.9, 0.85, 0.7, 0.95, ...]              │     │
+│  │     mean_score = 0.84                                        │     │
+│  │                                                               │     │
+│  └──────────────────────────────────────────────────────────────┘     │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐     │
+│  │ СТАТИСТИЧЕСКАЯ ОЦЕНКА:                                       │     │
+│  │                                                               │     │
+│  │   Повторить оценку n_runs раз (default: 5)                  │     │
+│   FOR run in range(n_runs):                                    │     │
+│  │     run_scores[run] = evaluate_once()                        │     │
+│  │                                                               │     │
+│  │   Вычислить статистику:                                      │     │
+│  │     mean = np.mean(run_scores)                               │     │
+│  │     std_dev = np.std(run_scores, ddof=1)                    │     │
+│  │     std_error = std_dev / sqrt(n_runs)                       │     │
+│  │                                                               │     │
+│  │   Доверительный интервал (t-distribution):                   │     │
+│  │     df = n_runs - 1                                          │     │
+│  │     t_value = t.ppf((1 + confidence_level) / 2, df)         │     │
+│  │     margin = t_value * std_error                             │     │
+│  │     ci_lower = mean - margin                                 │     │
+│  │     ci_upper = mean + margin                                 │     │
+│  │                                                               │     │
+│  │   Пример:                                                     │     │
+│  │     run_scores = [0.84, 0.86, 0.83, 0.85, 0.84]            │     │
+│  │     mean = 0.844                                             │     │
+│  │     std_dev = 0.011                                          │     │
+│  │     95% CI = [0.830, 0.858]                                  │     │
+│  │                                                               │     │
+│  └──────────────────────────────────────────────────────────────┘     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ВЫХОДНЫЕ ДАННЫЕ                                                         │
+│                                                                         │
+│  Базовая оценка:                                                        │
+│    score: 0.84                                                          │
+│                                                                         │
+│  Статистическая оценка:                                                 │
+│    {                                                                    │
+│      "mean": 0.844,                                                     │
+│      "std_dev": 0.011,                                                  │
+│      "std_error": 0.005,                                                │
+│      "confidence_level": 0.95,                                          │
+│      "confidence_interval": (0.830, 0.858),                            │
+│      "n_runs": 5,                                                       │
+│      "individual_scores": [0.84, 0.86, 0.83, 0.85, 0.84]              │
+│    }                                                                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.3. Типы метрик
+
+#### 1. ExactMatchMetric (Точное совпадение)
+
+```python
+def exact_match(prediction, expected):
+    return 1.0 if prediction.strip() == expected.strip() else 0.0
+```
+
+**Особенности:**
+- Простая binary метрика
+- Не учитывает частичное совпадение
+- Быстрая оценка
+
+#### 2. DSPyMetricAdapter (LLM-as-a-judge)
+
+```
+Prompt: SIMILARITY_PROMPT или CORRECTNESS_PROMPT
+Input: prediction, ground_truth
+Process: judge_model оценивает от 1 до 10
+Output: normalized score 0.0-1.0
+```
+
+**Особенности:**
+- Использует LLM для оценки
+- Учитывает семантическое сходство
+- Более гибкая оценка
+- Медленнее, чем exact match
+
+#### 3. FacilityMetric (JSON структурированная оценка)
+
+```python
+def facility_metric(prediction_json, expected_json):
+    scores = []
+    
+    # Urgency match
+    scores.append(1.0 if pred["urgency"] == exp["urgency"] else 0.0)
+    
+    # Sentiment match
+    scores.append(1.0 if pred["sentiment"] == exp["sentiment"] else 0.0)
+    
+    # Categories accuracy
+    cat_score = sum(
+        pred["categories"][k] == exp["categories"][k]
+        for k in exp["categories"]
+    ) / len(exp["categories"])
+    scores.append(cat_score)
+    
+    return sum(scores) / len(scores)
+```
+
+**Особенности:**
+- Специализированная для JSON задач
+- Оценивает несколько полей
+- Взвешенное усреднение
+
+### 4.4. Передача данных
+
+```
+INPUT → STAGE 1:
+  optimized_program (DSPy.Predict)
+  testset (List[Example])
+  metric (Callable)
+
+STAGE 1 → STAGE 2:
+  evaluator (Evaluator object)
+  testset
+
+STAGE 2 → STAGE 3:
+  predictions (List[Any])
+  expected_values (List[Any])
+
+STAGE 3 → STAGE 4:
+  scores (List[float])
+
+STAGE 4 → OUTPUT:
+  mean_score (float)
+  OR statistical_results (dict)
+```
+
+### 4.5. Параметры конфигурации
+
+```python
+{
+  # Базовая оценка
+  "num_threads": 10,              # параллельных потоков
+  
+  # Статистическая оценка
+  "n_runs": 5,                    # повторов оценки
+  "confidence_level": 0.95,       # доверительный интервал (95%)
+  
+  # Метрика
+  "metric_type": "exact_match",   # или "dspy_adapter" или "custom"
+  "metric_threshold": None        # порог для early stopping (опционально)
+}
+```
+
+---
+
+## 5. Заключение
+
+### 5.1. Сравнение пайплайнов
+
+| Характеристика | BasicOptimization | PDO | Evaluation |
+|----------------|-------------------|-----|------------|
+| **Цель** | Улучшение формата и стиля | Эволюция через соревнование | Оценка качества |
+| **Алгоритм** | DSPy MIPROv2 | Dueling Bandits + Thompson Sampling | Метрики |
+| **Сложность** | Низкая | Высокая | Низкая |
+| **Время выполнения** | Быстро (минуты) | Медленно (часы) | Быстро (минуты) |
+| **Количество промптов** | 2 | 8 | 0-2 |
+| **Параллелизм** | Да | Да | Да |
+| **Best for** | Quick improvements | Maximum performance | Quality assessment |
+
+### 5.2. Общий workflow
+
+```
+User Request
+     ↓
+PromptMigrator.optimize()
+     ↓
+Choose Strategy
+     ├─ BasicOptimization (for quick wins)
+     └─ PDO (for best results)
+     ↓
+Generate optimized instruction
+     ↓
+(Optional) Evaluation Pipeline
+     ↓
+Save results
+```
+
+### 5.3. Ключевые промпты в системе
+
+**Всего промптов: 10**
+
+1. **DATASET_DESCRIPTOR_PROMPT** - анализ данных
+2. **INSTRUCTION_PROPOSER_TEMPLATE** - генерация инструкций
+3. **REASON_PROMPT** - выполнение close-ended задач
+4. **ANSWER_PROMPT_OPEN** - выполнение open-ended задач
+5. **EVALUATE_PROMPT** - судейство close-ended
+6. **EVALUATE_OPEN_PROMPT** - судейство open-ended
+7. **REQUIREMENT_PROPOSER_TEMPLATE** - создание критериев
+8. **MUTATE_PROMPT_TEMPLATE** - мутация без labels
+9. **MUTATE_PROMPT_TEMPLATE_WITH_LABELS** - мутация с labels
+10. **SIMILARITY_PROMPT / CORRECTNESS_PROMPT** - LLM-метрики
+
+### 5.4. Потоки данных в системе
+
+```
+Raw Data (questions, contexts, answers)
+     ↓
+Dataset Analysis (DATASET_DESCRIPTOR_PROMPT)
+     ↓
+Dataset Summary (string)
+     ↓
+Instruction Generation (INSTRUCTION_PROPOSER_TEMPLATE)
+     ↓
+Instruction Pool (List[str])
+     ↓
+Task Execution (REASON_PROMPT / ANSWER_PROMPT_OPEN)
+     ↓
+Responses (List[dict])
+     ↓
+Judge Evaluation (EVALUATE_PROMPT / EVALUATE_OPEN_PROMPT)
+     ↓
+Win Matrix (2D array)
+     ↓
+Ranking & Mutation (MUTATE_PROMPT_TEMPLATE)
+     ↓
+Best Instruction (string)
+     ↓
+Final Program (DSPy.Predict with optimized instruction)
+     ↓
+Evaluation (Metrics)
+     ↓
+Score (float 0-1)
+```
+
+### 5.5. Советы по использованию
+
+**Когда использовать BasicOptimization:**
+- Нужны быстрые результаты
+- Ограниченный бюджет на API calls
+- Задача не требует максимальной точности
+- Первоначальное тестирование
+
+**Когда использовать PDO:**
+- Нужна максимальная производительность
+- Есть бюджет на множество API calls
+- Критически важная задача
+- Финальная оптимизация для production
+
+**Настройка параметров:**
+- `num_candidates` ↑ → больше разнообразие, но дольше
+- `total_rounds` ↑ → лучше результаты PDO, но дороже
+- `num_duels_per_round` ↑ → более точный ranking
+- `thompson_alpha` ↑ → больше exploration
+
+---
+
+## Документация завершена
+
+Этот документ описывает все возможные пайплайны работы агента Prompt-Ops:
+- **BasicOptimization** - быстрая оптимизация через DSPy MIPROv2
+- **PDO** - продвинутая оптимизация через dueling bandits
+- **Evaluation** - оценка качества промптов
+
+Каждый пайплайн включает:
+- Детальные ASCII-диаграммы
+- Пошаговое описание всех этапов
+- Потоки данных между этапами
+- Используемые промпты с входными/выходными данными
+- Параметры конфигурации
+
+Для полного описания промптов см. `PROMPTS_DOCUMENTATION.md`.
