@@ -382,3 +382,127 @@ DSPyMetricAdapter(
 ```
 
 ---
+## 3. Use-Case Specific Prompts
+
+Эти промпты используются в конкретных примерах использования (use-cases) системы Prompt-Ops для решения различных задач.
+
+### 3.1. HotpotQA - Multi-hop Reasoning
+
+**Расположение:** `/home/user/prompt-ops/use-cases/hotpotqa/hotpot_qa_sys_prompt.txt`
+
+**Назначение:** Системный промпт для задачи multi-hop question answering, где требуется рассуждение с использованием нескольких фрагментов контекста для получения ответа.
+
+**Тип задачи:** Multi-hop QA (вопросы, требующие объединения информации из нескольких источников)
+
+**Входные данные:**
+- `question` - вопрос, требующий multi-hop рассуждения
+- `context` - набор контекстных фрагментов (passages)
+
+**Выходные данные:** Короткий фактический ответ (short factoid answer)
+
+**Конфигурация:** `use-cases/hotpotqa/hotpotqa.yaml`, `configs/hotpotqa.yaml`
+
+```
+You are an expert at answering complex questions that require multi-hop reasoning. Give a short factoid answer.
+```
+
+---
+
+### 3.2. MS-Marco PDO - Open-ended Question Answering
+
+**Расположение:** `/home/user/prompt-ops/use-cases/ms-marco-pdo/prompts/prompt.txt`
+
+**Назначение:** Промпт для open-ended QA задачи с использованием PDO оптимизации. Модель должна генерировать точный и краткий ответ своими словами.
+
+**Тип задачи:** Open-ended question answering с PDO оптимизацией (20 раундов)
+
+**Входные данные:**
+- `question` - вопрос пользователя
+- (опционально) `context` - контекст для ответа
+
+**Выходные данные:** Краткий, точный ответ в свободной форме
+
+**Конфигурация:** `use-cases/ms-marco-pdo/config.yaml`
+
+**Особенности:**
+- Используется PDO стратегия с 20 total rounds
+- Open-ended формат (без структурированного JSON)
+- Фокус на генерации ответа своими словами
+
+```
+You are an expert answerer. Read the question and the provided context (if any). Write a concise, accurate answer in your own words.
+```
+
+---
+
+### 3.3. Web of Lies PDO - Logical Reasoning
+
+**Расположение:** `/home/user/prompt-ops/use-cases/web-of-lies-pdo/prompts/prompt.txt`
+
+**Назначение:** Минималистичный промпт для задач логического рассуждения в формате Web of Lies. Используется с PDO оптимизацией для улучшения accuracy.
+
+**Тип задачи:** Close-ended logical reasoning (binary classification)
+
+**Входные данные:**
+- `question` - логическая задача или утверждение
+
+**Выходные данные:** "Yes" или "No"
+
+**Конфигурация:** `use-cases/web-of-lies-pdo/config.yaml`
+
+**Особенности:**
+- PDO стратегия с 30 total rounds
+- Dueling bandits оптимизация
+- Close-ended задача с фиксированными вариантами ответа
+- Изначально минималистичный промпт, который PDO улучшает
+
+```
+Answer the following question.
+```
+
+---
+
+### 3.4. Facility Support Analyzer - Classification & Extraction
+
+**Расположение:** `/home/user/prompt-ops/use-cases/facility-support-analyzer/facility_prompt_sys.txt`
+
+**Назначение:** Комплексный промпт для классификации и извлечения структурированной информации из сообщений о проблемах в facility management. Модель должна извлечь urgency, sentiment и categories из входного сообщения.
+
+**Тип задачи:** Multi-label classification + sentiment analysis + urgency detection
+
+**Входные данные:**
+- `input` - текст сообщения от пользователя о проблеме/запросе
+
+**Выходные данные:** JSON объект с полями:
+- `urgency` - "high" | "medium" | "low"
+- `sentiment` - "negative" | "neutral" | "positive"  
+- `categories` - словарь с 10 возможными категориями (boolean значения)
+
+**Конфигурация:** `configs/facility.yaml`, `configs/facility-simple.yaml`
+
+**Категории поддержки:**
+- `emergency_repair_services` - экстренный ремонт
+- `routine_maintenance_requests` - плановое обслуживание
+- `quality_and_safety_concerns` - проблемы качества и безопасности
+- `specialized_cleaning_services` - специализированная уборка
+- `general_inquiries` - общие вопросы
+- `sustainability_and_environmental_practices` - экология и устойчивость
+- `training_and_support_requests` - обучение и поддержка
+- `cleaning_services_scheduling` - планирование уборки
+- `customer_feedback_and_complaints` - отзывы и жалобы
+- `facility_management_issues` - вопросы управления объектом
+
+**Особенности:**
+- Strict JSON output (без markdown форматирования)
+- Multi-task: одновременная классификация по трем измерениям
+- Специализированная метрика FacilityMetric для оценки
+
+```
+You are a helpful assistant. Extract and return a json with the following keys and values:
+- "urgency" as one of `high`, `medium`, `low`
+- "sentiment" as one of `negative`, `neutral`, `positive`
+- "categories" Create a dictionary with categories as keys and boolean values (True/False), where the value indicates whether the category is one of the best matching support category tags from: `emergency_repair_services`, `routine_maintenance_requests`, `quality_and_safety_concerns`, `specialized_cleaning_services`, `general_inquiries`, `sustainability_and_environmental_practices`, `training_and_support_requests`, `cleaning_services_scheduling`, `customer_feedback_and_complaints`, `facility_management_issues`
+Your complete message should be a valid json string that can be read directly and only contain the keys mentioned in the list above. Never enclose it in ```json...```, no newlines, no unnessacary whitespaces.
+```
+
+---
