@@ -506,3 +506,222 @@ Your complete message should be a valid json string that can be read directly an
 ```
 
 ---
+## 4. Mutation and Optimization Tips
+
+Расположение: `/home/user/prompt-ops/src/prompt_ops/core/pdo/meta_prompt.py`
+
+Эти промпты и стратегии используются PDO для генерации мутаций инструкций и их эволюции в процессе оптимизации.
+
+### 4.1. Mutate Prompt Template
+
+**Назначение:** Генерирует мутацию текущей лучшей инструкции (champion), применяя определенную стратегию мутации. Используется в фазе exploration PDO для создания новых кандидатов инструкций.
+
+**Когда используется:** В каждом раунде PDO после определения текущего чемпиона для создания новых инструкций-кандидатов.
+
+**Входные параметры:**
+- `{instructions}` - текущая лучшая инструкция (champion)
+- `{tip}` - стратегия мутации из словаря MUTATION_TIPS
+
+**Выходные данные:** JSON объект с полем `mutated_prompt`
+
+```python
+MUTATE_PROMPT_TEMPLATE = """
+You are an expert prompt‑engineer specializing in prompt optimization.
+Your task is to generate 1 *diverse, high‑quality* **mutation** of the currently **BEST PERFORMING** instruction for the target reasoning task.
+
+# BEST PERFORMING Instruction (Current Champion)
+{instructions}
+
+# CRITICAL: Follow This Prompt‑Engineering Tip
+{tip}
+
+# Output Format
+Return **exactly** 1 mutated instruction in a JSON object, *and nothing else*:
+
+{{
+  "mutated_prompt": "Your mutated instruction here, following the tip."
+}}
+"""
+```
+
+---
+
+### 4.2. Mutate Prompt Template With Labels
+
+**Назначение:** Расширенная версия промпта мутации, которая включает примеры input-output пар для контекста. Позволяет генерировать более осознанные мутации, особенно для few-shot стратегии.
+
+**Когда используется:** При мутации с доступом к labeled примерам данных.
+
+**Входные параметры:**
+- `{instructions}` - текущая лучшая инструкция
+- `{sample_pairs}` - примеры input-output пар для контекста
+- `{tip}` - стратегия мутации
+
+**Выходные данные:** JSON объект с полем `mutated_prompt`
+
+```python
+MUTATE_PROMPT_TEMPLATE_WITH_LABELS = """
+You are an expert prompt‑engineer specializing in prompt optimization.
+Your task is to generate 1 *diverse, high‑quality* **mutation** of the currently **BEST PERFORMING** instruction for the target reasoning task.
+
+# BEST PERFORMING Instruction (Current Champion)
+{instructions}
+
+# 📘 Sample Input-Output Pairs (for context)
+{sample_pairs}
+
+# CRITICAL: Follow This Prompt‑Engineering Tip
+{tip}
+
+# Output Format
+Return **exactly** 1 mutated instruction in a JSON object, *and nothing else*:
+
+{{
+  "mutated_prompt": "Your mutated instruction here, following the tip."
+}}
+"""
+```
+
+---
+
+### 4.3. Initial Instruction Tips
+
+**Назначение:** Словарь из 8 стратегий prompt engineering, используемых при генерации начальных seed инструкций. Каждый tip фокусируется на определенном аспекте качественного промпта.
+
+**Когда используется:** В начальной фазе PDO при генерации seed инструкций через INSTRUCTION_PROPOSER_TEMPLATE.
+
+**Список стратегий:**
+
+1. **framing** - Установка контекста задачи через креативный сценарий
+   ```
+   "Set the context for the task by framing it as a concrete creative scenario."
+   ```
+
+2. **simple** - Простота и ясность инструкции
+   ```
+   "Keep the instruction clear and concise."
+   ```
+
+3. **description** - Информативность и детализация
+   ```
+   "Make sure your instruction is very informative and descriptive."
+   ```
+
+4. **persona** - Использование релевантной персоны для LLM
+   ```
+   "Provide the LM with a creative persona that is relevant to the task."
+   ```
+
+5. **relevance** - Фокус на релевантности ответов
+   ```
+   "Focus on creating instructions that promote relevant, focused answers that directly address the question"
+   ```
+
+6. **completeness** - Полнота ответов
+   ```
+   "Instruct the model to provide complete answers that address all aspects of the question"
+   ```
+
+7. **clarity** - Ясность артикуляции
+   ```
+   "Provide guidance on creating clear, well-articulated answers that are easy to understand"
+   ```
+
+8. **evidence** - Использование evidence из контекста
+   ```
+   "Emphasize using evidence from the provided context to support answer generation"
+   ```
+
+---
+
+### 4.4. Mutation Tips
+
+**Назначение:** Словарь из 4 стратегий мутации инструкций, используемых для эволюции champion промпта. Каждая стратегия применяет разный тип трансформации к существующей инструкции.
+
+**Когда используется:** В фазе exploration PDO при генерации мутаций через MUTATE_PROMPT_TEMPLATE.
+
+**Список стратегий мутации:**
+
+1. **expansion** - Расширение существующей инструкции
+   ```
+   "Keep the current champion instruction exactly as is, but expand on it by adding additional helpful guidance or clarifications. The result should be the original instruction plus new supplementary content."
+   ```
+   **Эффект:** Сохраняет оригинал + добавляет новые детали
+
+2. **minimal** - Минимальные изменения (паrafразирование)
+   ```
+   "Make very minimal changes to the current champion instruction. Keep it around the same length and modify only a few words through paraphrasing while preserving the core meaning."
+   ```
+   **Эффект:** Небольшие вариации формулировок
+
+3. **few_shot** - Добавление примеров
+   ```
+   "Add a few concrete examples to the current champion instruction to demonstrate the expected reasoning process or output format. Include 1-3 brief example cases that show how to apply the instruction."
+   ```
+   **Эффект:** Превращает инструкцию в few-shot промпт
+
+4. **emphasis** - Изменение тона и акцентов
+   ```
+   "Adjust the tone, emphasis, or directional focus of the current champion instruction to create different reasoning patterns."
+   ```
+   **Эффект:** Меняет стиль и направление рассуждений
+
+---
+
+### 4.5. Prompt Engineering Strategy Summary
+
+**Жизненный цикл оптимизации инструкций в PDO:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PDO Optimization Loop                    │
+└─────────────────────────────────────────────────────────────┘
+
+Phase 1: INITIALIZATION
+├─ Dataset Descriptor → создает описание датасета
+├─ Initial Instruction Tips (8 strategies) → генерирует seed инструкции
+└─ Instruction Proposer → создает начальный пул инструкций
+
+Phase 2: DUELING (каждый раунд)
+├─ Выбор двух кандидатов для dueling
+├─ Task Execution (REASON_PROMPT или ANSWER_PROMPT_OPEN)
+│  └─ Обе инструкции применяются к одной задаче
+├─ Judge Evaluation (EVALUATE_PROMPT или EVALUATE_OPEN_PROMPT)
+│  └─ Определяет победителя дуэли
+└─ Update Rankings (Winner ELO ↑, Loser ELO ↓)
+
+Phase 3: MUTATION
+├─ Определение текущего Champion (highest ELO)
+├─ Mutation Tips (4 strategies) → выбор стратегии мутации
+├─ Mutate Prompt Template → генерирует новую мутацию
+└─ Добавление мутации в пул кандидатов
+
+Repeat Phase 2-3 до достижения total_rounds
+```
+
+**Принципы работы:**
+- **Diversity через Tips:** 8 начальных стратегий обеспечивают разнообразие seed инструкций
+- **Evolution через Mutation:** 4 стратегии мутации создают вариации лучших инструкций
+- **Selection через Dueling:** Механизм дуэлей с ELO рейтингом выбирает лучших
+- **Exploration-Exploitation:** Баланс между тестированием новых мутаций и использованием проверенных инструкций
+
+---
+
+## Заключение
+
+Этот документ описывает все промпты, используемые в системе Prompt-Ops:
+
+**Статистика:**
+- **7 PDO Meta-Prompts** - для оптимизации инструкций
+- **2 Evaluation Prompts** - для LLM-as-a-judge метрик
+- **4 Use-Case Prompts** - для конкретных задач
+- **2 Mutation Templates** - для эволюции инструкций
+- **8 Initial Tips + 4 Mutation Tips** - для prompt engineering
+
+**Ключевые компоненты:**
+1. **PDO Engine** использует meta-prompts для автоматической оптимизации
+2. **Metrics** используют LLM-based evaluation для scoring
+3. **Use-Cases** демонстрируют применение на реальных задачах
+4. **Mutation System** обеспечивает эволюцию и улучшение промптов
+
+Все промпты спроектированы для работы в единой экосистеме и поддерживают различные типы задач: close-ended, open-ended, classification, extraction, и reasoning.
